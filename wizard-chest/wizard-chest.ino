@@ -9,88 +9,97 @@
 
 
 // Arduino pin connected to the lock
-#define lockPin            13
+#define lockPin            3
 
 
-int sensor1Pin = 5;             // Arduino pin connected to the Hall effect sensor
-int sensor2Pin = 6;             // Arduino pin connected to the Hall effect sensor
-int sensor3Pin = 7;             // Arduino pin connected to the Hall effect sensor
+int sensorPin[3] = {5, 6, 7};           // Arduino pin connected to the Hall effect sensors
+int sensorReading[3];                   // reading from the sensor pin
+int currentState[3] = {1, 1, 1};        // the current state of the output pin
+int previousSate[3] = {0, 0, 0};        // the previousSate reading from the input pin
 
-int sensor1Reading;             // reading from the sensor pin
-int sensor2Reading;             // reading from the sensor pin
-int sensor3Reading;             // reading from the sensor pin
+int input[4] = {0, 0, 0, 0};
+int pass[4] = {1, 2, 3, 1};
 
-bool resetCode = LOW;           // resets the code sequence
+// Variables used for debouncing
+long time = 0;         // the last time the output pin was toggled
+long debounce = 100;   // delay between readings
 
-void setup()
-{
+void setup() {
   //Initialise the sensor pins as an input with a pullup resistor
-  pinMode(sensor1Pin, INPUT_PULLUP);
-  pinMode(sensor2Pin, INPUT_PULLUP);
-  pinMode(sensor3Pin, INPUT_PULLUP);
+  pinMode(sensorPin[0], INPUT_PULLUP);
+  pinMode(sensorPin[1], INPUT_PULLUP);
+  pinMode(sensorPin[2], INPUT_PULLUP);
+  pinMode(lockPin, OUTPUT);
   digitalWrite(lockPin, LOW);
   Serial.begin(9600);
+
 }
 
+void loop() {
 
-//Main program loop
-void loop(){
+for(int j=0; j<4; j++)
+{
+  Serial.println(input[j]);
+}
+Serial.println(" ");
+delay(200);
 
-  readSensor1();// only reed the first sensor in the sequence untill a wand is detected
+  checkState();
+  checkCombination();
   
 }
 
-//Send a 1s pulse to the lock
-void unlock(){
-  resetCode=HIGH;
-  digitalWrite(lockPin, HIGH);
-  delay(1000);
-  digitalWrite(lockPin, LOW);
+void shiftArray(){
+  
+  int tmp;
+  int *p = &input[0];
+  int *q = &input[1];
+  tmp = *p;  // Copy input[0] to tmp
+  for (int i=0; i<3; i++)
+  {
+    *(p++) = *(q++);      // Shift input[1-4] down to input[0-3]
   }
-
-//Read the first sensor in the sequence
-//if a wand is detected move to the second sensor in the sequence
-void readSensor1(){
-  sensor1Reading = digitalRead(sensor1Pin); //Get a reading from the sensor
-  delay(100);
-  resetCode=LOW;
-  //If a wand is detected move to the next sensor in the sequence
-  if(sensor1Reading == LOW){
-    readSensor2();
-    }
-  }
-
-//Read the second sensor in the sequence
-void readSensor2(){
-  //keep reading for some time before restarting the sequence
-  for(int counter=0; counter <=30; counter++){
-    //If the correct sequence was detected 
-    //exit the for loop
-    if (resetCode == HIGH){
-        break;
-        } 
-  sensor2Reading = digitalRead(sensor2Pin); //Get a reading from the sensor
-  delay(100);
-  //If a wand is detected move to the next sensor in the sequence
-  if(sensor2Reading == LOW){
-    readSensor3();
-    return;
-    }
-    //Keep checking the first sensor if the sequence is restarted
-    readSensor1();
-  }
+  *p = tmp;  // copy old input[0] to input[3]
+  
 }
 
-//Read the third sensor in the sequence
-void readSensor3(){
-  for(int counter=0; counter <=30; counter++){
-  sensor3Reading = digitalRead(sensor3Pin); //Get a reading from the sensor
-  delay(100);
-  if(sensor3Reading == LOW){
-    unlock();
-    break;
+void checkState(){
+
+  for(int i=0; i<3; i++){
+  sensorReading[i] = digitalRead(sensorPin[i]); //Get a reading from the sensor
+  
+  // if the input changed between HIGH and LOW and we've waited long enough
+  // for debouncing, toggle the output pin and record the current time
+  if (sensorReading[i] == LOW && previousSate[i] == HIGH && millis() - time > debounce) {
+    if(sensorReading[i] == LOW){
+    shiftArray();
+    input[3] = i+1;
     }
-    //Keep checking the first sensor if the sequence is restarted
-    readSensor1();
+   
+    time = millis();    
   }
+  
+  previousSate[i] = sensorReading[i];  
+  
+  }
+  
+}
+
+void checkCombination(){
+  
+  //check if the input array matches the unlock code  
+  if(input[0] == pass[0] && input[1] == pass[1] && input[2] == pass[2] && input[3] == pass[3]){
+    digitalWrite(lockPin, HIGH);
+    delay(300);
+    digitalWrite(lockPin, LOW);
+    
+    //reset the input array
+    input[0] = 0;
+    input[1] = 0;
+    input[2] = 0;
+    input[3] = 0;
+   }
+    else{
+      digitalWrite(lockPin, LOW);
+    }
 }
